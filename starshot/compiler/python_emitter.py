@@ -3,7 +3,7 @@ from __future__ import annotations
 from starshot.ir.ast_nodes import (
     Program, Graph, TypeDef, Contract,
     PrimitiveType, ListType, OptionType, TupleType, RecordType,
-    FunctionType, EnumType, NamedType,
+    FunctionType, EnumType, DictType, NamedType,
     LitExpr, IdentExpr, LetExpr, IfExpr, MatchArm, MatchExpr,
     LambdaExpr, PipeExpr, DoExpr, OpExpr, CallExpr,
     ListExpr, RecordExpr, GetExpr, SetExpr, BuiltinExpr,
@@ -27,12 +27,18 @@ _ALL_BUILTINS = {
     'take', 'drop', 'slice', 'index-of', 'sum', 'product',
     'any', 'all', 'enumerate', 'dict', 'keys', 'values',
     'has-key', 'get-or', 'int-to-string',
+    'dict-set', 'dict-get', 'dict-from-pairs', 'dict-empty',
+    'dict-merge', 'dict-keys', 'dict-values', 'dict-items',
+    'json-parse', 'json-stringify',
     # Common aliases LLMs use
     'list_get', 'list-get', 'string_trim', 'string_starts_with',
     'string_ends_with', 'string_contains', 'string_replace',
     'int_to_string', 'to_string', 'to_lower', 'to_upper',
     'empty_q', 'some_q', 'sort_by', 'map_opt', 'or_else',
     'read_line', 'flat_map',
+    'dict_set', 'dict_get', 'dict_from_pairs', 'dict_empty',
+    'dict_merge', 'dict_keys', 'dict_values', 'dict_items',
+    'json_parse', 'json_stringify',
 }
 _ALL_OPERATORS = {'+', '-', '*', '/', '%', '==', '!=', '<', '>', '<=', '>=', 'and', 'or', 'not'}
 
@@ -63,6 +69,8 @@ def emit_type_annotation(t: TypeExpr) -> str:
         return f"tuple[{inner}]"
     elif isinstance(t, RecordType):
         return "dict"  # Records become dataclasses, but as annotation use name
+    elif isinstance(t, DictType):
+        return f"dict[{emit_type_annotation(t.key)}, {emit_type_annotation(t.value)}]"
     elif isinstance(t, FunctionType):
         # Callable[[param], ret]
         return f"Callable[[{emit_type_annotation(t.param)}], {emit_type_annotation(t.ret)}]"
@@ -80,6 +88,7 @@ class PythonEmitter:
         self.needs_functools = False
         self.needs_dataclasses = False
         self.needs_callable = False
+        self.needs_json = False
 
     def emit(self, program: Program) -> str:
         """Emit a complete Python program from the AST."""
@@ -94,6 +103,8 @@ class PythonEmitter:
             imports.append("import functools")
         if self.needs_callable:
             imports.append("from typing import Callable")
+        if self.needs_json:
+            imports.append("import json")
         if imports:
             for imp in imports:
                 self._line(imp)
@@ -148,6 +159,9 @@ class PythonEmitter:
             self._scan_type_imports(t.elem)
         elif isinstance(t, OptionType):
             self._scan_type_imports(t.elem)
+        elif isinstance(t, DictType):
+            self._scan_type_imports(t.key)
+            self._scan_type_imports(t.value)
         elif isinstance(t, TupleType):
             for e in t.elems:
                 self._scan_type_imports(e)
@@ -155,6 +169,8 @@ class PythonEmitter:
     def _scan_expr_imports(self, expr: Expr):
         if isinstance(expr, BuiltinExpr) and expr.name == 'reduce':
             self.needs_functools = True
+        elif isinstance(expr, BuiltinExpr) and expr.name in ('json-parse', 'json_parse', 'json-stringify', 'json_stringify'):
+            self.needs_json = True
         elif isinstance(expr, LetExpr):
             self._scan_expr_imports(expr.value)
             self._scan_expr_imports(expr.body)
@@ -179,6 +195,10 @@ class PythonEmitter:
             for a in expr.args:
                 self._scan_expr_imports(a)
         elif isinstance(expr, CallExpr):
+            if expr.func in ('json-parse', 'json_parse', 'json-stringify', 'json_stringify'):
+                self.needs_json = True
+            if expr.func in ('reduce',):
+                self.needs_functools = True
             for a in expr.args:
                 self._scan_expr_imports(a)
         elif isinstance(expr, ListExpr):
@@ -763,8 +783,29 @@ class PythonEmitter:
         elif name == 'enumerate':
             return f"list(enumerate({args[0]}))"
         elif name == 'dict':
-            # (dict (k1 v1) (k2 v2) ...) — but args are already compiled
+            if not args:
+                return "{}"
             return f"{{{', '.join(args)}}}"
+        elif name in ('dict-set', 'dict_set'):
+            # (dict-set d k v) → {**d, k: v}
+            return f"{{**{args[0]}, {args[1]}: {args[2]}}}"
+        elif name in ('dict-get', 'dict_get'):
+            # (dict-get d k) → d[k]
+            return f"{args[0]}[{args[1]}]"
+        elif name in ('dict-from-pairs', 'dict_from_pairs'):
+            # (dict-from-pairs pairs) → dict(pairs)
+            return f"dict({args[0]})"
+        elif name in ('dict-empty', 'dict_empty'):
+            return "{}"
+        elif name in ('dict-merge', 'dict_merge'):
+            # (dict-merge d1 d2) → {**d1, **d2}
+            return f"{{**{args[0]}, **{args[1]}}}"
+        elif name in ('dict-keys', 'dict_keys'):
+            return f"list({args[0]}.keys())"
+        elif name in ('dict-values', 'dict_values'):
+            return f"list({args[0]}.values())"
+        elif name in ('dict-items', 'dict_items'):
+            return f"list({args[0]}.items())"
         elif name == 'keys':
             return f"list({args[0]}.keys())"
         elif name == 'values':
@@ -773,6 +814,12 @@ class PythonEmitter:
             return f"({args[1]} in {args[0]})"
         elif name in ('get-or', 'get_or'):
             return f"{args[0]}.get({args[1]}, {args[2]})"
+        elif name in ('json-parse', 'json_parse'):
+            self.needs_json = True
+            return f"json.loads({args[0]})"
+        elif name in ('json-stringify', 'json_stringify'):
+            self.needs_json = True
+            return f"json.dumps({args[0]})"
         elif name in ('list-get', 'list_get'):
             return f"{args[0]}[{args[1]}]"
         elif name == 'tuple':

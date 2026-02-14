@@ -43,13 +43,19 @@ class EnumType:
 
 
 @dataclass
+class DictType:
+    key: TypeExpr
+    value: TypeExpr
+
+
+@dataclass
 class NamedType:
     name: str
 
 
 TypeExpr = Union[
     PrimitiveType, ListType, OptionType, TupleType,
-    RecordType, FunctionType, EnumType, NamedType,
+    RecordType, FunctionType, EnumType, DictType, NamedType,
 ]
 
 

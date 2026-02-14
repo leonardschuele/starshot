@@ -106,7 +106,7 @@ Task: {task.description}
 
 ### Types
 Primitives: Int, Float, String, Bool, Unit
-Compound: (List T), (Option T), (Tuple T1 T2), (-> T1 T2)
+Compound: (List T), (Option T), (Tuple T1 T2), (Dict K V), (-> T1 T2)
 
 ### Expressions
 - Arithmetic: (+ a b), (- a b), (* a b), (/ a b), (% a b)
@@ -141,6 +141,15 @@ Compound: (List T), (Option T), (Tuple T1 T2), (-> T1 T2)
 - (list a b c) -> create a list literal
 - (slice xs start end) -> sublist
 - (sum xs) -> sum of numeric list
+- (dict) -> empty dict
+- (dict-set d k v) -> dict with key k set to value v
+- (dict-get d k) -> value at key k
+- (dict-from-pairs pairs) -> dict from list of [key, value] pairs
+- (get-or d k default) -> value at key k, or default if missing
+- (has-key d k) -> true if key k exists in dict
+- (keys d) -> list of keys
+- (values d) -> list of values
+- (json-parse s) -> parse JSON string to value
 
 ### Example: Factorial with contract
 (program

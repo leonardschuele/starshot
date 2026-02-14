@@ -4,7 +4,7 @@ from .lexer import Token, TokenType, tokenize
 from .ast_nodes import (
     Program, Graph, TypeDef, Contract,
     PrimitiveType, ListType, OptionType, TupleType, RecordType,
-    FunctionType, EnumType, NamedType,
+    FunctionType, EnumType, DictType, NamedType,
     LitExpr, IdentExpr, LetExpr, IfExpr, MatchArm, MatchExpr,
     LambdaExpr, PipeExpr, DoExpr, OpExpr, CallExpr,
     ListExpr, RecordExpr, GetExpr, SetExpr, BuiltinExpr,
@@ -31,9 +31,12 @@ BUILTINS = {
     'take', 'drop', 'slice', 'index-of', 'sum', 'product',
     'any', 'all', 'enumerate', 'dict', 'keys', 'values',
     'has-key', 'get-or', 'int-to-string',
+    'dict-set', 'dict-get', 'dict-from-pairs', 'dict-empty',
+    'dict-merge', 'dict-keys', 'dict-values', 'dict-items',
+    'json-parse', 'json-stringify',
 }
 PRIMITIVE_TYPES = {'Int', 'Float', 'String', 'Bool', 'Unit'}
-COMPOUND_TYPE_KEYWORDS = {'List', 'Option', 'Tuple', 'Record', '->', 'Enum'}
+COMPOUND_TYPE_KEYWORDS = {'List', 'Option', 'Tuple', 'Record', '->', 'Enum', 'Dict'}
 
 
 class ParseError(Exception):
@@ -231,6 +234,12 @@ class Parser:
                 ret = self.parse_type_expr()
                 self.expect(TokenType.RPAREN)
                 return FunctionType(param=param, ret=ret)
+            elif kw.value == 'Dict':
+                self.advance()
+                key_type = self.parse_type_expr()
+                val_type = self.parse_type_expr()
+                self.expect(TokenType.RPAREN)
+                return DictType(key=key_type, value=val_type)
             elif kw.value == 'Enum':
                 self.advance()
                 variants = []

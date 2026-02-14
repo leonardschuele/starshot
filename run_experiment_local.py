@@ -235,23 +235,17 @@ STARSHOT_SOLUTIONS = {
 (program
   (graph word-count
     (input (text String))
-    (output String)
+    (output (Dict String Int))
     (effect pure)
     (body
       (if (== (string-trim text) "")
-        "{}"
+        (dict)
         (let words (split text " ")
-          (let unique (reduce
+          (reduce
             (lambda (acc w)
-              (if (contains acc w) acc (append acc w)))
-            (list)
-            words)
-            (let pairs (map
-              (lambda (w)
-                (let count (length (filter (lambda (x) (== x w)) words))
-                  (concat "\"" w "\": " (format count))))
-              unique)
-              (concat "{" (join ", " pairs) "}"))))))))
+              (dict-set acc w (+ (get-or acc w 0) 1)))
+            (dict)
+            words))))))
 """,
     "binary_search": """
 (program
@@ -278,23 +272,18 @@ STARSHOT_SOLUTIONS = {
     "group_by": """
 (program
   (graph group-by
-    (input (pairs (List (List String))))
-    (output (List (List String)))
+    (input (pairs (List (Tuple String Int))))
+    (output (Dict String (List Int)))
     (effect pure)
     (body
-      (let keys (reduce
+      (reduce
         (lambda (acc pair)
           (let key (first pair)
-            (if (contains acc key) acc (append acc key))))
-        (list)
-        pairs)
-        (map
-          (lambda (key)
-            (cons key
-              (map
-                (lambda (pair) (nth pair 1))
-                (filter (lambda (pair) (== (first pair) key)) pairs))))
-          keys)))))
+            (let val (second pair)
+              (let existing (get-or acc key (list))
+                (dict-set acc key (append existing val))))))
+        (dict)
+        pairs))))
 """,
     "matrix_multiply": """
 (program
@@ -352,25 +341,22 @@ STARSHOT_SOLUTIONS = {
     (output String)
     (effect pure)
     (body
-      (let trimmed (string-trim s)
-        (if (== trimmed "null")
-          "null"
-          (if (== trimmed "true")
-            "true"
-            (if (== trimmed "false")
-              "false"
-              trimmed)))))))
+      (json-parse s))))
 """,
     "data_pipeline": """
 (program
   (graph process-orders
-    (input (orders (List (List Float))))
-    (output (List (List Float)))
+    (input (orders (List (Dict String Float))))
+    (output (List (Dict String Float)))
     (effect pure)
     (body
-      (let active (filter (lambda (o) (> (nth o 1) 0.0)) orders)
+      (let active (filter (lambda (o) (> (dict-get o "total") 0.0)) orders)
         (map (lambda (o)
-          (list (nth o 0) (nth o 1) (* (nth o 1) 0.1)))
+          (dict-from-pairs
+            (list
+              (list "id" (dict-get o "id"))
+              (list "total" (dict-get o "total"))
+              (list "tax" (* (dict-get o "total") 0.1)))))
           active)))))
 """,
     "tree_traversal": """
