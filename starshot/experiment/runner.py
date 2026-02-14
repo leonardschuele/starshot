@@ -90,21 +90,100 @@ def build_starshot_prompt(task: BenchmarkTask) -> str:
     func_name = task.python_signature.split("(")[0].replace("def ", "")
     return f"""Write a Starshot IR program that solves the following task.
 The program should define a graph named '{func_name}' with appropriate typed inputs and outputs.
-Return ONLY the Starshot IR code (an S-expression starting with (program ...)).
+Return ONLY the Starshot IR code (an S-expression starting with (program ...)), no markdown fences.
 
 Task: {task.description}
 
-The Starshot IR uses S-expressions with these constructs:
-- (program (graph name (input (param Type)) (output Type) (effect pure) (body expr)))
-- Types: Int, Float, String, Bool, Unit, (List T), (Option T)
-- Expressions: (if cond then else), (let name val body), (match x (pattern body)...)
-- Operations: +, -, *, /, %, ==, !=, <, >, <=, >=, and, or, not
-- Lists: list, map, filter, reduce, head, tail, cons, append, length, empty?, range
-- Strings: concat, format, length, split, join
-- Functions: (call graph-name args...), (lambda (params) body)
-- Contracts: (contract (pre condition) (post condition))
+## Starshot IR Reference
 
-{f"Hints: {task.hints}" if task.hints else ""}"""
+### Structure
+(program
+  (graph name
+    (input (param1 Type1) (param2 Type2))
+    (output ReturnType)
+    (effect pure)
+    (body expr)))
+
+### Types
+Primitives: Int, Float, String, Bool, Unit
+Compound: (List T), (Option T), (Tuple T1 T2), (-> T1 T2)
+
+### Expressions
+- Arithmetic: (+ a b), (- a b), (* a b), (/ a b), (% a b)
+- Comparison: (== a b), (!= a b), (< a b), (> a b), (<= a b), (>= a b)
+- Boolean: (and a b), (or a b), (not a)
+- Control: (if cond then else), (let name value body)
+- Lambda: (lambda (x y) body)
+- Call a named graph: (call graph-name arg1 arg2)
+
+### Builtin functions (use directly, NOT with call):
+- (head xs) -> first element
+- (tail xs) -> all but first
+- (cons x xs) -> prepend x to list
+- (append xs x) -> append x to list
+- (length xs) -> length of list or string
+- (empty? xs) -> true if list is empty
+- (nth xs i) -> element at index i
+- (range start end) -> list of ints
+- (map (lambda (x) body) xs) -> transform each element
+- (filter (lambda (x) body) xs) -> keep matching elements
+- (reduce (lambda (acc x) body) init xs) -> fold list
+- (reverse xs) -> reversed list
+- (contains xs x) -> true if x is in xs
+- (concat s1 s2 ...) -> concatenate strings
+- (format x) -> convert to string
+- (split s delim) -> split string into list
+- (join delim parts) -> join list into string
+- (to-lower s) -> lowercase string
+- (to-upper s) -> uppercase string
+- (abs n) -> absolute value
+- (min a b), (max a b) -> min/max of two values
+- (list a b c) -> create a list literal
+- (slice xs start end) -> sublist
+- (sum xs) -> sum of numeric list
+
+### Example: Factorial with contract
+(program
+  (graph factorial
+    (input (n Int))
+    (output Int)
+    (effect pure)
+    (contract
+      (pre (>= n 0))
+      (post (> result 0)))
+    (body
+      (if (== n 0)
+        1
+        (* n (call factorial (- n 1)))))))
+
+### Example: Filter and map a list
+(program
+  (graph double-positives
+    (input (xs (List Int)))
+    (output (List Int))
+    (effect pure)
+    (body
+      (let positives (filter (lambda (x) (> x 0)) xs)
+        (map (lambda (x) (* x 2)) positives)))))
+
+### Example: Recursive helper with let
+(program
+  (graph sum-list
+    (input (xs (List Int)))
+    (output Int)
+    (effect pure)
+    (body
+      (if (empty? xs)
+        0
+        (+ (head xs) (call sum-list (tail xs)))))))
+
+IMPORTANT:
+- Use builtins directly: (head xs), (empty? xs), (length xs) — NOT (call head xs)
+- Use (call name args) ONLY for calling named graphs defined in the program
+- Lambdas: (lambda (x) body) for one param, (lambda (x y) body) for two
+- Let bindings: (let name value body) where body uses name
+{f"- Hints: {task.hints}" if task.hints else ""}\
+"""
 
 
 def run_experiment(config: ExperimentConfig,

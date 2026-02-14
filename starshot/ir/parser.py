@@ -22,6 +22,15 @@ BUILTINS = {
     'join', 'format', 'print', 'read-line',
     'some', 'none', 'some?', 'unwrap', 'map-opt',
     'or-else', 'error', 'try', 'catch', 'set',
+    # Extended builtins (commonly expected by LLMs)
+    'reverse', 'first', 'second', 'last', 'contains',
+    'abs', 'min', 'max', 'to-string', 'to-int', 'to-float',
+    'to-lower', 'to-upper', 'string-length', 'char-at',
+    'string-starts-with', 'string-ends-with', 'string-contains',
+    'string-replace', 'string-trim', 'flat-map', 'zip',
+    'take', 'drop', 'slice', 'index-of', 'sum', 'product',
+    'any', 'all', 'enumerate', 'dict', 'keys', 'values',
+    'has-key', 'get-or', 'int-to-string',
 }
 PRIMITIVE_TYPES = {'Int', 'Float', 'String', 'Bool', 'Unit'}
 COMPOUND_TYPE_KEYWORDS = {'List', 'Option', 'Tuple', 'Record', '->', 'Enum'}

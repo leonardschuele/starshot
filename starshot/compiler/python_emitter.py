@@ -12,6 +12,30 @@ from starshot.ir.ast_nodes import (
     TypeExpr, Expr, Pattern,
 )
 
+_ALL_BUILTINS = {
+    'not', 'map', 'filter', 'reduce', 'head', 'tail',
+    'cons', 'append', 'nth', 'range', 'empty?',
+    'sort-by', 'length', 'concat', 'substr', 'split',
+    'join', 'format', 'print', 'read-line',
+    'some', 'none', 'some?', 'unwrap', 'map-opt',
+    'or-else', 'error', 'try', 'catch', 'set',
+    'reverse', 'first', 'second', 'last', 'contains',
+    'abs', 'min', 'max', 'to-string', 'to-int', 'to-float',
+    'to-lower', 'to-upper', 'string-length', 'char-at',
+    'string-starts-with', 'string-ends-with', 'string-contains',
+    'string-replace', 'string-trim', 'flat-map', 'zip',
+    'take', 'drop', 'slice', 'index-of', 'sum', 'product',
+    'any', 'all', 'enumerate', 'dict', 'keys', 'values',
+    'has-key', 'get-or', 'int-to-string',
+    # Common aliases LLMs use
+    'list_get', 'list-get', 'string_trim', 'string_starts_with',
+    'string_ends_with', 'string_contains', 'string_replace',
+    'int_to_string', 'to_string', 'to_lower', 'to_upper',
+    'empty_q', 'some_q', 'sort_by', 'map_opt', 'or_else',
+    'read_line', 'flat_map',
+}
+_ALL_OPERATORS = {'+', '-', '*', '/', '%', '==', '!=', '<', '>', '<=', '>=', 'and', 'or', 'not'}
+
 
 def _sanitize_name(name: str) -> str:
     """Convert Starshot identifiers to valid Python identifiers."""
@@ -320,6 +344,9 @@ class PythonEmitter:
         if isinstance(expr, LitExpr):
             return self._lit(expr)
         elif isinstance(expr, IdentExpr):
+            # Handle common LLM-generated identifiers
+            if expr.name == 'empty':
+                return '[]'
             return _sanitize_name(expr.name)
         elif isinstance(expr, LetExpr):
             return self._let_expr(expr)
@@ -451,6 +478,16 @@ class PythonEmitter:
         body = self._expr(expr.body)
         return f"(lambda {params}: {body})"
 
+    def _order_fn_list_args(self, raw_args: list, compiled_args: list[str]) -> tuple[str, str]:
+        """For map/filter, detect whether arg order is (fn, list) or (list, fn)."""
+        if len(raw_args) == 2:
+            if isinstance(raw_args[0], LambdaExpr):
+                return compiled_args[0], compiled_args[1]
+            elif isinstance(raw_args[1], LambdaExpr):
+                return compiled_args[1], compiled_args[0]
+        # Default: first arg is function
+        return compiled_args[0], compiled_args[1]
+
     def _pipe_expr(self, expr: PipeExpr) -> str:
         result = self._expr(expr.value)
         for step in expr.steps:
@@ -505,7 +542,7 @@ class PythonEmitter:
 
     def _op_expr(self, expr: OpExpr) -> str:
         py_ops = {
-            '+': '+', '-': '-', '*': '*', '/': '/', '%': '%',
+            '+': '+', '-': '-', '*': '*', '/': '//', '%': '%',
             '==': '==', '!=': '!=', '<': '<', '>': '>', '<=': '<=', '>=': '>=',
             'and': 'and', 'or': 'or',
         }
@@ -524,6 +561,12 @@ class PythonEmitter:
             return f"({f' {op} '.join(parts)})"
 
     def _call_expr(self, expr: CallExpr) -> str:
+        # If the function name matches a builtin, route through builtin emitter
+        if expr.func in _ALL_BUILTINS:
+            return self._builtin_expr(BuiltinExpr(name=expr.func, args=expr.args))
+        # If the function name matches an operator, route through op emitter
+        if expr.func in _ALL_OPERATORS:
+            return self._op_expr(OpExpr(op=expr.func, args=expr.args))
         func = _sanitize_name(expr.func)
         args = ', '.join(self._expr(a) for a in expr.args)
         return f"{func}({args})"
@@ -560,12 +603,37 @@ class PythonEmitter:
         if name == 'not':
             return f"(not {args[0]})"
         elif name == 'map':
-            return f"[{args[0]}(_x_) for _x_ in {args[1]}]"
+            # Support both (map fn list) and (map list fn)
+            fn_arg, list_arg = self._order_fn_list_args(expr.args, args)
+            return f"[{fn_arg}(_x_) for _x_ in {list_arg}]"
         elif name == 'filter':
-            return f"[_x_ for _x_ in {args[1]} if {args[0]}(_x_)]"
+            # Support both (filter fn list) and (filter list fn)
+            fn_arg, list_arg = self._order_fn_list_args(expr.args, args)
+            return f"[_x_ for _x_ in {list_arg} if {fn_arg}(_x_)]"
         elif name == 'reduce':
+            # Support (reduce fn init list), (reduce list fn init), and (reduce fn list init)
             self.needs_functools = True
-            return f"functools.reduce({args[0]}, {args[2]}, {args[1]})"
+            if len(expr.args) == 3:
+                # Detect which arg is the lambda/function
+                if isinstance(expr.args[0], LambdaExpr):
+                    # (reduce fn init list)
+                    return f"functools.reduce({args[0]}, {args[2]}, {args[1]})"
+                elif isinstance(expr.args[1], LambdaExpr):
+                    # (reduce list fn init)
+                    return f"functools.reduce({args[1]}, {args[0]}, {args[2]})"
+                elif isinstance(expr.args[2], LambdaExpr):
+                    # (reduce list init fn)
+                    return f"functools.reduce({args[2]}, {args[0]}, {args[1]})"
+                else:
+                    # Default: (reduce fn init list)
+                    return f"functools.reduce({args[0]}, {args[2]}, {args[1]})"
+            elif len(expr.args) == 2:
+                # (reduce fn list) — no init
+                if isinstance(expr.args[0], LambdaExpr):
+                    return f"functools.reduce({args[0]}, {args[1]})"
+                else:
+                    return f"functools.reduce({args[1]}, {args[0]})"
+            return f"functools.reduce({', '.join(args)})"
         elif name == 'head':
             return f"{args[0]}[0]"
         elif name == 'tail':
@@ -597,6 +665,9 @@ class PythonEmitter:
                 return f"{args[0]}[{args[1]}:]"
             return f"{args[0]}[{args[1]}:{args[2]}]"
         elif name == 'split':
+            # Handle split with empty string -> list(str)
+            if len(expr.args) >= 2 and isinstance(expr.args[1], LitExpr) and expr.args[1].value == "":
+                return f"list({args[0]})"
             return f"{args[0]}.split({args[1]})"
         elif name == 'join':
             return f"{args[0]}.join({args[1]})"
@@ -625,6 +696,87 @@ class PythonEmitter:
         elif name == 'set':
             # (set obj field value) -> functional update
             return f"__import__('dataclasses').replace({args[0]}, {args[1]}={args[2]})"
+        # Extended builtins
+        elif name == 'reverse':
+            return f"list(reversed({args[0]}))"
+        elif name == 'first':
+            return f"{args[0]}[0]"
+        elif name == 'second':
+            return f"{args[0]}[1]"
+        elif name == 'last':
+            return f"{args[0]}[-1]"
+        elif name == 'contains' or name == 'string-contains' or name == 'string_contains':
+            return f"({args[1]} in {args[0]})"
+        elif name == 'abs':
+            return f"abs({args[0]})"
+        elif name == 'min':
+            if len(args) == 1:
+                return f"min({args[0]})"
+            return f"min({args[0]}, {args[1]})"
+        elif name == 'max':
+            if len(args) == 1:
+                return f"max({args[0]})"
+            return f"max({args[0]}, {args[1]})"
+        elif name in ('to-string', 'to_string', 'int-to-string', 'int_to_string'):
+            return f"str({args[0]})"
+        elif name in ('to-int', 'to_int'):
+            return f"int({args[0]})"
+        elif name in ('to-float', 'to_float'):
+            return f"float({args[0]})"
+        elif name in ('to-lower', 'to_lower'):
+            return f"{args[0]}.lower()"
+        elif name in ('to-upper', 'to_upper'):
+            return f"{args[0]}.upper()"
+        elif name in ('string-length', 'string_length'):
+            return f"len({args[0]})"
+        elif name in ('char-at', 'char_at'):
+            return f"{args[0]}[{args[1]}]"
+        elif name in ('string-starts-with', 'string_starts_with'):
+            return f"{args[0]}.startswith({args[1]})"
+        elif name in ('string-ends-with', 'string_ends_with'):
+            return f"{args[0]}.endswith({args[1]})"
+        elif name in ('string-replace', 'string_replace'):
+            return f"{args[0]}.replace({args[1]}, {args[2]})"
+        elif name in ('string-trim', 'string_trim'):
+            return f"{args[0]}.strip()"
+        elif name in ('flat-map', 'flat_map'):
+            return f"[_y_ for _x_ in {args[1]} for _y_ in {args[0]}(_x_)]"
+        elif name == 'zip':
+            return f"list(zip({args[0]}, {args[1]}))"
+        elif name == 'take':
+            return f"{args[1]}[:{args[0]}]"
+        elif name == 'drop':
+            return f"{args[1]}[{args[0]}:]"
+        elif name == 'slice':
+            return f"{args[0]}[{args[1]}:{args[2]}]"
+        elif name in ('index-of', 'index_of'):
+            return f"({args[0]}.index({args[1]}) if {args[1]} in {args[0]} else -1)"
+        elif name == 'sum':
+            return f"sum({args[0]})"
+        elif name == 'product':
+            self.needs_functools = True
+            return f"functools.reduce(lambda a, b: a * b, {args[0]}, 1)"
+        elif name == 'any':
+            return f"any({args[0]}({_x_}) for _x_ in {args[1]})" if len(args) > 1 else f"any({args[0]})"
+        elif name == 'all':
+            return f"all({args[0]}({_x_}) for _x_ in {args[1]})" if len(args) > 1 else f"all({args[0]})"
+        elif name == 'enumerate':
+            return f"list(enumerate({args[0]}))"
+        elif name == 'dict':
+            # (dict (k1 v1) (k2 v2) ...) — but args are already compiled
+            return f"{{{', '.join(args)}}}"
+        elif name == 'keys':
+            return f"list({args[0]}.keys())"
+        elif name == 'values':
+            return f"list({args[0]}.values())"
+        elif name in ('has-key', 'has_key'):
+            return f"({args[1]} in {args[0]})"
+        elif name in ('get-or', 'get_or'):
+            return f"{args[0]}.get({args[1]}, {args[2]})"
+        elif name in ('list-get', 'list_get'):
+            return f"{args[0]}[{args[1]}]"
+        elif name == 'tuple':
+            return f"({', '.join(args)},)" if len(args) == 1 else f"({', '.join(args)})"
         else:
             return f"{_sanitize_name(name)}({', '.join(args)})"
 
