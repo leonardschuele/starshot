@@ -1,0 +1,36 @@
+(program
+  (type Order (Record (id Int) (total Float) (status String)))
+  (type Summary (Record (id Int) (total Float) (tax Float)))
+
+  (graph process-orders
+    (input (orders (List Order)))
+    (output (List Summary))
+    (effect pure)
+    (contract
+      (pre (not (empty? orders)))
+      (post (<= (length result) (length orders))))
+    (body
+      (pipe orders
+        (filter (lambda (o) (> (get o total) 0.0)))
+        (map (lambda (o)
+          (record Summary
+            (id (get o id))
+            (total (get o total))
+            (tax (* (get o total) 0.1))))))))
+
+  (graph main
+    (input)
+    (output Unit)
+    (effect io)
+    (body
+      (do
+        (let orders (list
+          (record Order (id 1) (total 100.0) (status "active"))
+          (record Order (id 2) (total 0.0) (status "cancelled"))
+          (record Order (id 3) (total 250.0) (status "active"))))
+        (let summaries (call process-orders orders))
+        (map (lambda (s)
+          (print (concat "Order " (format (get s id))
+                         ": total=" (format (get s total))
+                         " tax=" (format (get s tax)))))
+          summaries)))))

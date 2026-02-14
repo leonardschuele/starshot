@@ -1,0 +1,60 @@
+(program
+  (type User (Record (id Int) (name String) (email String)))
+  (type UserDB (Record (users (List User)) (next-id Int)))
+
+  (graph empty-db
+    (input)
+    (output UserDB)
+    (effect pure)
+    (body
+      (record UserDB (users (list)) (next-id 1))))
+
+  (graph add-user
+    (input (db UserDB) (name String) (email String))
+    (output UserDB)
+    (effect pure)
+    (contract
+      (post (> (length (get result users)) (length (get db users)))))
+    (body
+      (let new-user (record User
+                      (id (get db next-id))
+                      (name name)
+                      (email email))
+        (record UserDB
+          (users (append (get db users) new-user))
+          (next-id (+ (get db next-id) 1))))))
+
+  (graph find-user
+    (input (db UserDB) (user-id Int))
+    (output (Option User))
+    (effect pure)
+    (body
+      (let matches (filter (lambda (u) (== (get u id) user-id)) (get db users))
+        (if (empty? matches)
+          none
+          (head matches)))))
+
+  (graph delete-user
+    (input (db UserDB) (user-id Int))
+    (output UserDB)
+    (effect pure)
+    (body
+      (record UserDB
+        (users (filter (lambda (u) (not (== (get u id) user-id))) (get db users)))
+        (next-id (get db next-id)))))
+
+  (graph main
+    (input)
+    (output Unit)
+    (effect io)
+    (body
+      (do
+        (let db (call empty-db))
+        (let db (call add-user db "Alice" "alice@example.com"))
+        (let db (call add-user db "Bob" "bob@example.com"))
+        (let db (call add-user db "Charlie" "charlie@example.com"))
+        (print (concat "Users: " (format (length (get db users)))))
+        (let found (call find-user db 2))
+        (print (concat "Found user 2: " (format found)))
+        (let db (call delete-user db 2))
+        (print (concat "After delete: " (format (length (get db users)))))))))

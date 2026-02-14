@@ -1,0 +1,19 @@
+(program
+  (graph factorial
+    (input (n Int))
+    (output Int)
+    (effect pure)
+    (contract
+      (pre (>= n 0))
+      (post (> result 0)))
+    (body
+      (if (== n 0)
+        1
+        (* n (call factorial (- n 1))))))
+
+  (graph main
+    (input)
+    (output Int)
+    (effect pure)
+    (body
+      (call factorial 10))))

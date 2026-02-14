@@ -1,0 +1,50 @@
+(program
+  (type State
+    (Enum
+      (Idle)
+      (Running Int)
+      (Paused Int)
+      (Done Int)))
+
+  (type Event
+    (Enum
+      (Start)
+      (Pause)
+      (Resume)
+      (Tick)
+      (Stop)))
+
+  (graph transition
+    (input (state State) (event Event))
+    (output State)
+    (effect pure)
+    (body
+      (match state
+        ((Idle) (match event
+          ((Start) (Running 0))
+          (_ (Idle))))
+        ((Running n) (match event
+          ((Pause) (Paused n))
+          ((Tick) (Running (+ n 1)))
+          ((Stop) (Done n))
+          (_ (Running n))))
+        ((Paused n) (match event
+          ((Resume) (Running n))
+          ((Stop) (Done n))
+          (_ (Paused n))))
+        ((Done n) (Done n)))))
+
+  (graph main
+    (input)
+    (output Unit)
+    (effect io)
+    (body
+      (do
+        (let s0 (Idle))
+        (let s1 (call transition s0 (Start)))
+        (let s2 (call transition s1 (Tick)))
+        (let s3 (call transition s2 (Tick)))
+        (let s4 (call transition s3 (Pause)))
+        (let s5 (call transition s4 (Resume)))
+        (let s6 (call transition s5 (Stop)))
+        (print (format s6))))))
